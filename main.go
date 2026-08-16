@@ -2,8 +2,8 @@ package main
 
 import (
 	"blogaggregator/internal/config"
-	"fmt"
 	"log"
+	"os"
 )
 
 func main() {
@@ -12,16 +12,31 @@ func main() {
 		log.Fatalf("Error reading config %v", err)
 	}
 
-	err = cfg.SetUser("Dovydas")
-	if err != nil {
-		log.Fatalf("Error setting username %v", err)
+	s := state{
+		cfg: &cfg,
 	}
 
-	cfg, err = config.Read()
-	if err != nil {
-		log.Fatalf("Error reading the file %v", err)
+	c := commands{
+		handlers: map[string]func(*state, command) error{},
 	}
 
-	fmt.Printf("Read config again: %+v\n", cfg)
+	c.register("login", handlerLogin)
+
+	if len(os.Args) < 2 {
+		log.Fatal("Not enough arguments")
+	}
+
+	cName := os.Args[1]
+	cArgs := os.Args[2:]
+
+	cmd := command{
+		name: cName,
+		args: cArgs,
+	}
+
+	err = c.run(&s, cmd)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 }
