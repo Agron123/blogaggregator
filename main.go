@@ -2,8 +2,12 @@ package main
 
 import (
 	"blogaggregator/internal/config"
+	"blogaggregator/internal/database"
+	"database/sql"
 	"log"
 	"os"
+
+	_ "github.com/lib/pq"
 )
 
 func main() {
@@ -12,8 +16,16 @@ func main() {
 		log.Fatalf("Error reading config %v", err)
 	}
 
+	dbURL := cfg.DBURL
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Database connection error: %v", err)
+	}
+	dbQueries := database.New(db)
+
 	s := state{
 		cfg: &cfg,
+		db:  dbQueries,
 	}
 
 	c := commands{
@@ -21,6 +33,7 @@ func main() {
 	}
 
 	c.register("login", handlerLogin)
+	c.register("register", handlerRegister)
 
 	if len(os.Args) < 2 {
 		log.Fatal("Not enough arguments")

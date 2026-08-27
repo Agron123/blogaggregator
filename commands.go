@@ -2,11 +2,17 @@ package main
 
 import (
 	"blogaggregator/internal/config"
+	"blogaggregator/internal/database"
+	"context"
 	"errors"
 	"fmt"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type state struct {
+	db  *database.Queries
 	cfg *config.Config
 }
 
@@ -43,12 +49,44 @@ func handlerLogin(s *state, cmd command) error {
 		return errors.New("the login handler expects a single argument, the username")
 	}
 
-	err := s.cfg.SetUser(cmd.args[0])
+	_, err := s.db.GetUser(context.Background(), cmd.args[0])
+	if err != nil {
+		return err
+	}
+
+	err = s.cfg.SetUser(cmd.args[0])
 	if err != nil {
 		return err
 	}
 
 	fmt.Println("username has been set")
+
+	return nil
+
+}
+
+func handlerRegister(s *state, cmd command) error {
+	if len(cmd.args) == 0 {
+		return errors.New("the register handler expects a single argument, the name")
+	}
+
+	params := database.CreateUserParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Name:      cmd.args[0],
+	}
+	user, err := s.db.CreateUser(context.Background(), params)
+	if err != nil {
+		return err
+	}
+
+	err = s.cfg.SetUser(user.Name)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Created user %v", user)
 
 	return nil
 
