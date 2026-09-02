@@ -159,3 +159,20 @@ func handlerAddFeed(s *state, cmd command) error {
 	return nil
 
 }
+
+func handlerFeeds(s *state, cmd command) error {
+	if len(cmd.args) > 0 {
+		return errors.New("the feeds handler does not require any parameters")
+	}
+	feeds, err := s.db.GetFeed(context.Background())
+	if err != nil {
+		return err
+	}
+
+	for _, value := range feeds {
+		fmt.Printf("%v\n", value)
+
+	}
+
+	return nil
+}
