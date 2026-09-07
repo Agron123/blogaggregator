@@ -39,6 +39,8 @@ func main() {
 	c.register("agg", handlerAgg)
 	c.register("addfeed", handlerAddFeed)
 	c.register("feeds", handlerFeeds)
+	c.register("follow", handlerFollow)
+	c.register("following", handlerFollowing)
 
 	if len(os.Args) < 2 {
 		log.Fatal("Not enough arguments")
