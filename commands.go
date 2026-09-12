@@ -4,11 +4,15 @@ import (
 	"blogaggregator/internal/config"
 	"blogaggregator/internal/database"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type state struct {
@@ -131,14 +135,88 @@ func handlerUsers(s *state, cmd command) error {
 	return nil
 }
 
-func handlerAgg(s *state, cmd command) error {
-	rss, err := fetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+func scrapeFeeds(s *state) error {
+	nextFeed, err := s.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return err
+	}
+	err = s.db.MarkFeedFetched(context.Background(), nextFeed.ID)
 	if err != nil {
 		return err
 	}
 
-	fmt.Print(rss)
+	RSSFeed, err := fetchFeed(context.Background(), nextFeed.Url)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range RSSFeed.Channel.Item {
+		pubTime := sql.NullTime{}
+
+		if item.PubDate != "" {
+			parsedTime, err := time.Parse(time.RFC1123Z, item.PubDate)
+			if err != nil {
+				return err
+			}
+
+			pubTime = sql.NullTime{
+				Time:  parsedTime,
+				Valid: true,
+			}
+		}
+
+		params := database.CreatePostParams{
+			ID:        uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Title:     item.Title,
+			Url:       item.Link,
+			Description: sql.NullString{
+				String: item.Description,
+				Valid:  item.Description != ""},
+			PublishedAt: pubTime,
+			FeedID:      nextFeed.ID,
+		}
+
+		_, err = s.db.CreatePost(context.Background(), params)
+		if err != nil {
+			var pqErr *pq.Error
+
+			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+				continue
+			}
+
+			log.Printf("error creating post: %v", err)
+			continue
+		}
+
+	}
+
 	return nil
+
+}
+
+func handlerAgg(s *state, cmd command) error {
+	if len(cmd.args) < 1 {
+		return errors.New("the agg handler expects one argument - time between requests")
+	}
+
+	timeBetweenReqs, err := time.ParseDuration(cmd.args[0])
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Collecting feeds every %v\n", timeBetweenReqs)
+
+	ticker := time.NewTicker(timeBetweenReqs)
+	defer ticker.Stop()
+	for ; ; <-ticker.C {
+		err = scrapeFeeds(s)
+		if err != nil {
+			return err
+		}
+	}
+
 }
 
 func handlerAddFeed(s *state, cmd command, user database.User) error {
@@ -263,6 +341,42 @@ func handlerUnfollow(s *state, cmd command, user database.User) error {
 		return err
 	}
 	fmt.Println("feed unfollowed successfully")
+
+	return nil
+}
+
+func handlerBrowse(s *state, cmd command, user database.User) error {
+	limit := 2
+
+	if len(cmd.args) > 1 {
+		return errors.New("browse handler accepts only 1 argument")
+	}
+
+	if len(cmd.args) == 1 {
+		parsedLimit, err := strconv.Atoi(cmd.args[0])
+		if err != nil {
+			return err
+		}
+		limit = parsedLimit
+
+	}
+
+	userID := user.ID
+	params := database.GetPostsForUserParams{
+		UserID: userID,
+		Limit:  int32(limit),
+	}
+	posts, err := s.db.GetPostsForUser(context.Background(), params)
+	if err != nil {
+		return err
+	}
+
+	for _, item := range posts {
+		fmt.Printf("%v\n", item.Title)
+		fmt.Printf("%v\n", item.Description.String)
+		fmt.Printf("%v\n", item.Url)
+
+	}
 
 	return nil
 }
